@@ -3,7 +3,7 @@ const axios = require('axios');
 
 const GRAPHQL_ENDPOINT = 'https://esustreinamento.mossoro.rn.gov.br/api/graphql';
 
-const COOKIE_DE_SESSAO = 'JSESSIONID=TmEkiZBXXW4LkgsiIClnypL43JoR3Ydn0s2gsQho; XSRF-TOKEN=e9b34ab3-7c57-4118-b2bf-8d7cc9dcbf86';
+const COOKIE_DE_SESSAO = 'JSESSIONID=; XSRF-TOKEN=';
 
 const corpoDaRequisicao = [{
     "operationName": "AgendamentosDiaLotacao",

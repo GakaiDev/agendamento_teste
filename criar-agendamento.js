@@ -3,9 +3,9 @@ const axios = require('axios');
 
 const GRAPHQL_ENDPOINT = 'https://esustreinamento.mossoro.rn.gov.br/api/graphql';
 
-const COOKIE_DE_SESSAO = 'JSESSIONID=GQJI5K3xAAfp2b1DukCi6DWkRYpyxBPnWw2J8pBO'; 
+const COOKIE_DE_SESSAO = 'JSESSIONID='; 
 
-const TOKEN_XSRF = '639a39ca-3d4d-4de7-b5f4-1b0b976c5a1b'; 
+const TOKEN_XSRF = ''; 
 
 
 
