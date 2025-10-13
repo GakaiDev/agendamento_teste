@@ -4,12 +4,12 @@ const axios = require('axios');
 const GRAPHQL_ENDPOINT = 'https://esustreinamento.mossoro.rn.gov.br/api/graphql';
 
 
-const COOKIE_DE_SESSAO = 'JSESSIONID=; XSRF-TOKEN=';
+const COOKIE_DE_SESSAO = 'JSESSIONID=Gea3gQUz-vgdu5A0ChsvThxtdq4xZDUzlMpEYoPm; XSRF-TOKEN=e512ca87-aaab-404f-95a1-76a25b10dd41';
 const TOKEN_XSRF = '';
 
 
 
-const cboIdParaBuscar = "960"; 
+const cboIdParaBuscar = "490"; 
 
 
 
