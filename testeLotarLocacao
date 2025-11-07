@@ -1,0 +1,186 @@
+const axios = require('axios');
+const readline = require('readline');
+
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+function askQuestion(query) { return new Promise(resolve => rl.question(query, resolve)); }
+
+const GRAPHQL_ENDPOINT = 'https://esustreinamento.mossoro.rn.gov.br/api/graphql';
+
+// ID do usuário de serviço
+const PROFISSIONAL_ID = "3904"; 
+
+// IDs do Cargo (CBO) e Perfis
+const CBO_ID_PARA_ADICIONAR = "1341";
+const PERFIS_IDS_PARA_ADICIONAR = ["31"]; // ["31"] é o perfil de coordenador
+// ------------------------------------
+
+class LotacaoManager {
+    constructor() {
+        this.axiosInstance = axios.create();
+    }
+
+    async login(username, password) {
+        console.log("Realizando login do usuário de serviço (com 'force: true')...");
+        const MUTATION = `mutation Login($input: LoginInput!) {\n  login(input: $input) {\n    success\n  }\n}\n`;
+        
+        const variables = { 
+            "input": { 
+                username, 
+                password,
+                "force": true 
+            } 
+        };
+
+        try {
+            const response = await this.axiosInstance.post(
+                GRAPHQL_ENDPOINT, 
+                { operationName: 'Login', query: MUTATION, variables },
+                {
+                    headers: {
+                        'Api-Consumer-Id': 'ESUS_WEB_CLIENT',
+                        'apollographql-client-name': 'PEC Web',
+                        'apollographql-client-version': '5.4.13' 
+                    }
+                }
+            );
+
+            if (response.data.errors) {
+                console.error("Erro no login:", response.data.errors);
+                return false;
+            }
+
+            const cookies = response.headers['set-cookie'];
+            if (!cookies) { console.error("Falha ao obter cookies do login."); return false; }
+
+            const cookieString = cookies.join('; ');
+            const xsrf = cookieString.match(/XSRF-TOKEN=([^;]+)/);
+            if (!xsrf) { console.error("Falha ao encontrar o XSRF-TOKEN no cookie."); return false; }
+
+            this.axiosInstance.defaults.headers.common['Cookie'] = cookieString;
+            this.axiosInstance.defaults.headers.common['X-XSRF-TOKEN'] = xsrf[1];
+            this.axiosInstance.defaults.headers.common['apollographql-client-name'] = 'PEC Web';
+            this.axiosInstance.defaults.headers.common['apollographql-client-version'] = '5.4.13';
+
+            console.log("Login forçado realizado. Cookies armazenados.");
+
+            const sessaoAtiva = await this.ativarSessaoInicial("4760"); // Usando a lotação da UBS Dr Moises
+            if (!sessaoAtiva) {
+                console.error("Falha ao ativar a sessão com um acesso inicial.");
+                return false;
+            }
+
+            console.log("Sessão de login totalmente ativada.");
+            return true;
+        } catch (error) {
+            console.error("Falha grave no login:", error.message);
+            if (error.response) console.error("Detalhes:", error.response.data);
+            return false;
+        }
+    }
+
+    // Função para ativar a sessão inicial
+    async ativarSessaoInicial(lotacaoId) {
+        console.log(`Ativando sessão com a lotação inicial (ID: ${lotacaoId})...`);
+        const MUTATION = `mutation SelecionarAcesso($input: SelecionarAcessoInput!) {\n  selecionarAcesso(input: $input) {\n    id\n  }\n}\n`;
+        const variables = { "input": { "id": lotacaoId } };
+        const data = await this.callGraphQL('SelecionarAcesso', MUTATION, variables);
+        
+        if (data && data.selecionarAcesso) {
+            console.log("Sessão ativada com sucesso.");
+            return true;
+        }
+        return false;
+    }
+
+    async callGraphQL(operationName, query, variables) {
+        try {
+            const response = await this.axiosInstance.post(GRAPHQL_ENDPOINT, { operationName, query, variables });
+            if (response.data.errors) {
+                console.error(`\nAPI retornou um erro em [${operationName}]:`, JSON.stringify(response.data.errors, null, 2));
+                return null;
+            }
+            return response.data.data;
+        } catch (error) {
+            console.error(`\n--- FALHA NA COMUNICAÇÃO [${operationName}] ---`);
+            return null;
+        }
+    }
+
+    async getMinhasLotacoesAtuais() {
+        console.log("Buscando lotações atuais do profissional...");
+        const QUERY = `query profissionalDetail($id: ID!) {\n  profissional(id: $id) {\n    lotacoes {\n      unidadeSaude {\n        id\n      }\n    }\n  }\n}\n`;
+        const variables = { "id": PROFISSIONAL_ID };
+        const data = await this.callGraphQL('profissionalDetail', QUERY, variables);
+        
+        const ubsIdsAtuais = new Set();
+        if (data && data.profissional && data.profissional.lotacoes) {
+            data.profissional.lotacoes.forEach(lot => {
+                if (lot.unidadeSaude) ubsIdsAtuais.add(lot.unidadeSaude.id);
+            });
+        }
+        console.log(`Profissional já está em ${ubsIdsAtuais.size} UBSs.`);
+        return ubsIdsAtuais;
+    }
+
+    async getTodasUnidadesSaude() {
+        console.log("Buscando TODAS as Unidades de Saúde do sistema...");
+        const QUERY = `query UnidadesSaudeSelectField($input: UnidadesSaudeQueryInput!) {\n  unidadesSaude(input: $input) {\n    content {\n      id\n      nome\n    }\n  }\n}\n`;
+        const variables = { "input": { "mostrarInativas": false, "somenteUnidadesPermitidas": true, "pageParams": { "size": 1000 } } }; 
+        const data = await this.callGraphQL('UnidadesSaudeSelectField', QUERY, variables);
+        return data ? data.unidadesSaude.content : [];
+    }
+
+    async adicionarLotacao(unidadeId) {
+        console.log(`-> Adicionando lotação para a UBS ID: ${unidadeId}...`);
+        const MUTATION = `mutation CriarLotacao($input: LotacaoInput!) {\n  criarLotacao(input: $input) {\n    id\n  }\n}\n`;
+        const variables = {
+            "input": {
+                "profissional": PROFISSIONAL_ID,
+                "ativo": true,
+                "atualizaPerfil": true,
+                "unidadeSaude": unidadeId,
+                "cbo": CBO_ID_PARA_ADICIONAR,
+                "perfis": PERFIS_IDS_PARA_ADICIONAR
+            }
+        };
+        const data = await this.callGraphQL('CriarLotacao', MUTATION, variables);
+        if (data && data.criarLotacao) {
+            console.log(`   SUCESSO! Nova Lotação ID: ${data.criarLotacao.id}`);
+        } else {
+            console.log(`   FALHA ao adicionar UBS ID: ${unidadeId}. (Talvez já exista ou permissão negada)`);
+        }
+    }
+}
+
+
+async function provisionarUsuario() {
+    console.log("--- Script de Provisionamento Automático de Lotações ---");
+    const manager = new LotacaoManager();
+
+    const username = await askQuestion("Digite o CPF do usuário de serviço: ");
+    const password = await askQuestion("Digite a SENHA do usuário de serviço: ");
+    const loginOk = await manager.login(username, password);
+    if (!loginOk) { console.log("Login falhou. Encerrando."); return; }
+
+    const lotacoesAtuais = await manager.getMinhasLotacoesAtuais();
+
+    const todasUBS = await manager.getTodasUnidadesSaude();
+    console.log(`Total de UBSs encontradas no sistema: ${todasUBS.length}`);
+
+    const ubsParaAdicionar = todasUBS.filter(ubs => !lotacoesAtuais.has(ubs.id));
+    
+    if (ubsParaAdicionar.length === 0) {
+        console.log("\n--- TUDO CERTO! ---");
+        console.log("Seu usuário de serviço já está lotado em todas as UBSs disponíveis.");
+    } else {
+        console.log(`\n--- INICIANDO PROVISIONAMENTO ---`);
+        console.log(`Faltam ${ubsParaAdicionar.length} UBSs para adicionar.`);
+        
+        for (const ubs of ubsParaAdicionar) {
+            await manager.adicionarLotacao(ubs.id);
+        }
+        console.log("\n--- Provisionamento Concluído! ---");
+    }
+}
+
+provisionarUsuario().finally(() => rl.close());
